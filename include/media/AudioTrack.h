@@ -667,7 +667,8 @@ public:
      * false for the method to return immediately without waiting to try multiple times to write
      * the full content of the buffer.
      */
-            ssize_t     write(const void* buffer, size_t size, bool blocking = true);
+            ssize_t     write(const void* buffer, size_t size);
+            ssize_t     write(const void* buffer, size_t size, bool blocking);
 
     /*
      * Dumps the state of an audio track.
