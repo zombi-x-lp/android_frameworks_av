@@ -107,7 +107,6 @@ static size_t calculateMinFrameCount(
 // static
 
 uint32_t AudioTrack::latency() const { return mLatency; }
-audio_stream_type_t  AudioTrack::streamType() const { return mStreamType; }
 audio_format_t  AudioTrack::format() const  { return mFormat; }
 uint32_t    AudioTrack::channelCount() const  { return mChannelCount; }
 uint32_t    AudioTrack::frameCount() const  { return mFrameCount; }
