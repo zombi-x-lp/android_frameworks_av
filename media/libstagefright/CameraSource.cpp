@@ -131,6 +131,7 @@ static int32_t getColorFormat(const char* colorFormat) {
          "CameraSource::getColorFormat", colorFormat);
 
     CHECK(!"Unknown color format");
+    return -1;
 }
 
 CameraSource *CameraSource::Create(const String16 &clientName) {
@@ -653,6 +654,7 @@ status_t CameraSource::start(MetaData *meta) {
         mRecorderExtendedStats = rStats;
     }
 
+    RECORDER_STATS(profileStart, STATS_PROFILE_CAMERA_SOURCE_START_LATENCY);
     CHECK(!mStarted);
     if (mInitCheck != OK) {
         ALOGE("CameraSource is not initialized yet");
@@ -782,7 +784,6 @@ status_t CameraSource::reset() {
         if (mNumGlitches > 0) {
             ALOGW("%d long delays between neighboring video frames", mNumGlitches);
         }
-
         CHECK_EQ(mNumFramesReceived, mNumFramesEncoded + mNumFramesDropped);
     }
 
@@ -927,6 +928,8 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
 
     mLastFrameTimestampUs = timestampUs;
     if (mNumFramesReceived == 0) {
+        RECORDER_STATS(profileStop, STATS_PROFILE_CAMERA_SOURCE_START_LATENCY);
+        RECORDER_STATS(profileStop, STATS_PROFILE_START_LATENCY);
         mFirstFrameTimeUs = timestampUs;
         // Initial delay
         if (mStartTimeUs > 0) {

@@ -80,7 +80,7 @@ static const size_t kHighWaterMarkBytes = 200000;
 
 // maximum time in paused state when offloading audio decompression. When elapsed, the AudioPlayer
 // is destroyed to allow the audio DSP to power down.
-static int64_t kOffloadPauseMaxUs = 60000000ll;
+static int64_t kOffloadPauseMaxUs = 10000000ll;
 
 
 struct AwesomeEvent : public TimedEventQueue::Event {
@@ -979,6 +979,16 @@ void AwesomePlayer::onStreamDone() {
         return;
     }
 
+    if (mFlags & AUTO_LOOPING) {
+        audio_stream_type_t streamType = AUDIO_STREAM_MUSIC;
+        if (mAudioSink != NULL) {
+            streamType = mAudioSink->getAudioStreamType();
+        }
+        if (streamType == AUDIO_STREAM_NOTIFICATION) {
+            ALOGW("disabling auto-loop for notification");
+            modifyFlags(AUTO_LOOPING, CLEAR);
+        }
+    }
     if ((mFlags & LOOPING)
             || ((mFlags & AUTO_LOOPING)
                 && (mAudioSink == NULL || mAudioSink->realtime()))) {
@@ -1150,17 +1160,32 @@ status_t AwesomePlayer::fallbackToSWDecoder() {
     mAudioSource.clear();
     modifyFlags((AUDIO_RUNNING | AUDIOPLAYER_STARTED), CLEAR);
     mOffloadAudio = false;
-    mAudioSource = mOmxSource;
+    const char * mime;
+    sp<MetaData> tempMetadata;
+    sp<MetaData> format = mAudioTrack->getFormat();
+    CHECK(format->findCString(kKeyMIMEType, &mime));
+    if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
+        mAudioSource = mAudioTrack;
+        tempMetadata = ExtendedUtils::updatePCMFormatAndBitwidth(mAudioTrack,
+                                                                mOffloadAudio);
+    } else {
+        mAudioSource = mOmxSource;
+    }
+
     if (mAudioSource != NULL) {
-        if ((err = mAudioSource->start()) == OK) {
+        if ((err = mAudioSource->start(tempMetadata.get())) == OK) {
             mSeekNotificationSent = true;
             if (mExtractorFlags & MediaExtractor::CAN_SEEK) {
                 seekTo_l(curTimeUs);
             }
             createAudioPlayer_l();
             err = startAudioPlayer_l(false);
+        } else {
+            mAudioSource.clear();
+            mOmxSource.clear();
         }
     }
+    tempMetadata.clear();
 
     return err;
 }
@@ -1170,7 +1195,6 @@ void AwesomePlayer::createAudioPlayer_l()
     uint32_t flags = 0;
     int64_t cachedDurationUs;
     bool eos;
-
     if (mOffloadAudio) {
         flags |= AudioPlayer::USE_OFFLOAD;
     } else if (mVideoSource == NULL
@@ -1722,7 +1746,9 @@ status_t AwesomePlayer::initAudioDecoder() {
     int64_t durationUs = -1;
     mAudioTrack->getFormat()->findInt64(kKeyDuration, &durationUs);
 
-    if (!mOffloadAudio && mAudioSource != NULL) {
+    if (!mOffloadAudio && mAudioSource != NULL
+            && !ExtendedUtils::pcmOffloadException(mime)) {
+        //do not offload evrc, qcelp, amr
         ALOGI("Could not offload audio decode, try pcm offload");
         sp<MetaData> format = mAudioSource->getFormat();
         if (durationUs >= 0) {
@@ -1740,32 +1766,19 @@ status_t AwesomePlayer::initAudioDecoder() {
             }
         }
 
-#if defined(ENABLE_AV_ENHANCEMENTS) && defined(PCM_OFFLOAD_ENABLED_24)
-        sp<MetaData> tempMetadata;
-        if(!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
-            ALOGV("%s MEDIA_MIMETYPE_AUDIO_RAW", __func__);
-            tempMetadata = new MetaData;
-            sp<MetaData> format = mAudioSource->getFormat();
-            int bitWidth = 16;
-            format->findInt32(kKeySampleBits, &bitWidth);
-            char prop_pcmoffload[PROPERTY_VALUE_MAX] = {0};
-            property_get("audio.offload.pcm.enable", prop_pcmoffload, "0");
-            if ((mOffloadAudio) &&
-                (24 == bitWidth) &&
-                (!strcmp(prop_pcmoffload, "true") || atoi(prop_pcmoffload)))
-                tempMetadata->setInt32(kKeyPcmFormat, AUDIO_FORMAT_PCM_8_24_BIT);
-        }
-        err = mAudioSource->start(tempMetadata.get());
-        tempMetadata.clear();
-#else
-        err = mAudioSource->start();
-#endif
+    sp<MetaData> tempMetadata;
+    if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)) {
+        tempMetadata = ExtendedUtils::updatePCMFormatAndBitwidth(mAudioSource,
+                                                                mOffloadAudio);
+    }
+    err = mAudioSource->start(tempMetadata.get());
+    tempMetadata.clear();
 
-        if (err != OK) {
-            mAudioSource.clear();
-            mOmxSource.clear();
-            return err;
-        }
+    if (err != OK) {
+        mAudioSource.clear();
+        mOmxSource.clear();
+        return err;
+    }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_QCELP)) {
         // For legacy reasons we're simply going to ignore the absence
         // of an audio decoder for QCELP instead of aborting playback

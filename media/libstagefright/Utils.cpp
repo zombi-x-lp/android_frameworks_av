@@ -276,7 +276,6 @@ status_t convertMetaDataToMessage(
         const uint8_t *ptr = (const uint8_t *)data;
 
         CHECK(size >= 7);
-        CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
         uint8_t profile = ptr[1] & 31;
         uint8_t level = ptr[12];
         ptr += 22;
@@ -713,6 +712,9 @@ static const struct mime_conv_t mimeLookup[] = {
     { MEDIA_MIMETYPE_AUDIO_WMA,         AUDIO_FORMAT_WMA },
     { MEDIA_MIMETYPE_AUDIO_FLAC,        AUDIO_FORMAT_FLAC },
     { MEDIA_MIMETYPE_CONTAINER_QTIFLAC, AUDIO_FORMAT_FLAC },
+#ifdef DOLBY_UDC
+    { MEDIA_MIMETYPE_AUDIO_EAC3_JOC,    AUDIO_FORMAT_E_AC3_JOC },
+#endif
 #endif
     { 0, AUDIO_FORMAT_INVALID }
 };
@@ -793,7 +795,7 @@ bool canOffloadStream(const sp<MetaData>& meta, bool hasVideo, const sp<MetaData
     if(meta->findInt32(kKeySampleBits, &bitWidth) && 24 == bitWidth)
         ALOGV("%s Bits per sample is 24", __func__);
     else
-        ALOGW("%s No Sample Bit info in meta data", __func__);
+        ALOGV("%s Sample Bit info in meta data is %d", __func__, bitWidth);
 #endif
 #endif
     if (mapMimeToAudioFormat(info.format, mime) != OK) {

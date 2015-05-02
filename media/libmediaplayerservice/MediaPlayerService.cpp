@@ -456,6 +456,9 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
     const size_t SIZE = 256;
     char buffer[SIZE];
     String8 result;
+    SortedVector< sp<Client> > clients; //to serialise the mutex unlock & client destruction.
+    SortedVector< sp<MediaRecorderClient> > mediaRecorderClients;
+
     if (checkCallingPermission(String16("android.permission.DUMP")) == false) {
         snprintf(buffer, SIZE, "Permission Denial: "
                 "can't dump MediaPlayerService from pid=%d, uid=%d\n",
@@ -467,6 +470,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
         for (int i = 0, n = mClients.size(); i < n; ++i) {
             sp<Client> c = mClients[i].promote();
             if (c != 0) c->dump(fd, args);
+            clients.add(c);
         }
         if (mMediaRecorderClients.size() == 0) {
                 result.append(" No media recorder client\n\n");
@@ -479,6 +483,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
                     write(fd, result.string(), result.size());
                     result = "\n";
                     c->dump(fd, args);
+                    mediaRecorderClients.add(c);
                 }
             }
         }
@@ -1350,7 +1355,7 @@ status_t MediaPlayerService::decode(
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
-    player->start();
+    if (player->start() != NO_ERROR) goto Exit;
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -1405,7 +1410,7 @@ status_t MediaPlayerService::decode(int fd, int64_t offset, int64_t length,
     if (cache->wait() != NO_ERROR) goto Exit;
 
     ALOGV("start");
-    player->start();
+    if (player->start() != NO_ERROR) goto Exit;
 
     ALOGV("wait for playback complete");
     cache->wait();
@@ -1452,6 +1457,7 @@ MediaPlayerService::AudioOutput::AudioOutput(int sessionId, int uid, int pid,
     mSendLevel = 0.0;
     setMinBufferCount();
     mAttributes = attr;
+    mBitWidth = 16;
 }
 
 MediaPlayerService::AudioOutput::~AudioOutput()
@@ -1660,6 +1666,15 @@ status_t MediaPlayerService::AudioOutput::open(
         } else if (mRecycledTrack->format() != format) {
             reuse = false;
         }
+
+        if (bothOffloaded) {
+            if (mBitWidth != offloadInfo->bit_width) {
+                ALOGV("output bit width differs %d v/s %d",
+                      mBitWidth, offloadInfo->bit_width);
+                reuse = false;
+            }
+        }
+
     } else {
         ALOGV("no track available to recycle");
     }
@@ -1771,6 +1786,13 @@ status_t MediaPlayerService::AudioOutput::open(
     mSampleRateHz = sampleRate;
     mFlags = flags;
     mMsecsPerFrame = mPlaybackRatePermille / (float) sampleRate;
+
+    if (offloadInfo) {
+        mBitWidth = offloadInfo->bit_width;
+    } else {
+        mBitWidth = 16;
+    }
+
     uint32_t pos;
     if (t->getPosition(&pos) == OK) {
         mBytesWritten = uint64_t(pos) * t->frameSize();
@@ -1823,6 +1845,7 @@ void MediaPlayerService::AudioOutput::switchToNextOutput() {
         mNextOutput->mMsecsPerFrame = mMsecsPerFrame;
         mNextOutput->mBytesWritten = mBytesWritten;
         mNextOutput->mFlags = mFlags;
+        mNextOutput->mBitWidth = mBitWidth;
     }
 }
 
@@ -2094,6 +2117,7 @@ status_t MediaPlayerService::AudioCache::open(
 {
     ALOGV("open(%u, %d, 0x%x, %d, %d)", sampleRate, channelCount, channelMask, format, bufferCount);
     if (mHeap->getHeapID() < 0) {
+        ALOGE("Invalid heap Id");
         return NO_INIT;
     }
 
@@ -2103,7 +2127,12 @@ status_t MediaPlayerService::AudioCache::open(
     mMsecsPerFrame = 1.e3 / (float) sampleRate;
     mFrameSize =  audio_is_linear_pcm(mFormat)
             ? mChannelCount * audio_bytes_per_sample(mFormat) : 1;
-    mFrameCount = mHeap->getSize() / mFrameSize;
+
+    if (cb == NULL) {
+        // Use buffer of size equal to that of the heap if AudioCache used by NuPlayer.
+        // Otherwise use default buffersize.
+        mFrameCount = mHeap->getSize() / mFrameSize;
+    }
 
     if (cb != NULL) {
         mCallbackThread = new CallbackThread(this, cb, cookie);
@@ -2150,6 +2179,7 @@ ssize_t MediaPlayerService::AudioCache::write(const void* buffer, size_t size)
         // immutable with respect to future writes.
         //
         // It is thus safe for another thread to read the AudioCache.
+        Mutex::Autolock lock(mLock);
         mCommandComplete = true;
         mSignal.signal();
     }
@@ -2184,7 +2214,6 @@ void MediaPlayerService::AudioCache::notify(
     {
     case MEDIA_ERROR:
         ALOGE("Error %d, %d occurred", ext1, ext2);
-        p->mError = ext1;
         break;
     case MEDIA_PREPARED:
         ALOGV("prepared");
@@ -2199,6 +2228,9 @@ void MediaPlayerService::AudioCache::notify(
 
     // wake up thread
     Mutex::Autolock lock(p->mLock);
+    if (msg == MEDIA_ERROR) {
+        p->mError = ext1;
+    }
     p->mCommandComplete = true;
     p->mSignal.signal();
 }

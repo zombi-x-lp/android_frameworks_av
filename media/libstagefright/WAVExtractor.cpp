@@ -374,8 +374,6 @@ WAVSource::~WAVSource() {
 status_t WAVSource::start(MetaData *params) {
     ALOGV("WAVSource::start");
 
-    CHECK(!mStarted);
-
 #ifdef ENABLE_AV_ENHANCEMENTS
 #ifdef PCM_OFFLOAD_ENABLED_24
     if (params != NULL) {
@@ -386,9 +384,17 @@ status_t WAVSource::start(MetaData *params) {
             ALOGV("%s Couldn't find format. Setting output format to default: %x",
                __func__, mOutputFormat);
         }
+    } else {
+        ALOGV("Use default output format if metadata is not set");
+        mOutputFormat = AUDIO_FORMAT_PCM_16_BIT;
     }
 #endif
 #endif
+
+    if(mStarted) {
+        ALOGW("WAVSource::start, already started. mOutputFormat set to:%d",mOutputFormat);
+        return OK;
+    }
 
     mGroup = new MediaBufferGroup;
     mGroup->add_buffer(new MediaBuffer(kMaxFrameSize));
@@ -475,10 +481,6 @@ status_t WAVSource::read(
         maxBytesToRead = maxBytesAvailable;
     }
 
-    // read only integral amounts of audio unit frames.
-    const size_t inputUnitFrameSize = mNumChannels * mBitsPerSample / 8;
-    maxBytesToRead -= maxBytesToRead % inputUnitFrameSize;
-
     if (mWaveFormat == WAVE_FORMAT_MSGSM) {
         // Microsoft packs 2 frames into 65 bytes, rather than using separate 33-byte frames,
         // so read multiples of 65, and use smaller buffers to account for ~10:1 expansion ratio
@@ -486,6 +488,10 @@ status_t WAVSource::read(
             maxBytesToRead = 1024;
         }
         maxBytesToRead = (maxBytesToRead / 65) * 65;
+    } else {
+        // read only integral amounts of audio unit frames.
+        const size_t inputUnitFrameSize = mNumChannels * mBitsPerSample / 8;
+        maxBytesToRead -= maxBytesToRead % inputUnitFrameSize;
     }
 
     ssize_t n = mDataSource->readAt(

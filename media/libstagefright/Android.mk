@@ -1,3 +1,22 @@
+#
+# This file was modified by DTS, Inc. The portions of the
+# code that are surrounded by "DTS..." are copyrighted and
+# licensed separately, as follows:
+#
+#  (C) 2014 DTS, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License
+#
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
@@ -106,10 +125,10 @@ LOCAL_SHARED_LIBRARIES := \
 
 #QTI FLAC Decoder
 ifeq ($(call is-vendor-board-platform,QCOM),true)
+LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER)),true)
 LOCAL_SRC_FILES += FLACDecoder.cpp
 LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio/audio-flac
-LOCAL_C_INCLUDES += $(TARGET_OUT_HEADERS)/mm-audio
 LOCAL_CFLAGS := -DQTI_FLAC_DECODER
 endif
 endif
@@ -128,8 +147,8 @@ LOCAL_STATIC_LIBRARIES := \
         libmedia_helper
 
 ifeq ($(TARGET_USES_QCOM_BSP), true)
-ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
-    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/display-$(TARGET_QCOM_MEDIA_VARIANT)/libgralloc
+ifneq ($(TARGET_QCOM_DISPLAY_VARIANT),)
+    LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/display-$(TARGET_QCOM_DISPLAY_VARIANT)/libgralloc
 else
     LOCAL_C_INCLUDES += hardware/qcom/display/libgralloc
 endif
@@ -150,17 +169,17 @@ endif
 endif #TARGET_ENABLE_AV_ENHANCEMENTS
 
 ifeq ($(call is-vendor-board-platform,QCOM),true)
-ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD_24)),true)
-       LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED_24
 ifneq ($(TARGET_QCOM_MEDIA_VARIANT),)
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media-$(TARGET_QCOM_MEDIA_VARIANT)/mm-core/inc
 else
        LOCAL_C_INCLUDES += $(TOP)/hardware/qcom/media/mm-core/inc
 endif
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD_24)),true)
+       LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED_24
 endif
+ifeq ($(strip $(AUDIO_FEATURE_ENABLED_PCM_OFFLOAD)),true)
+       LOCAL_CFLAGS     += -DPCM_OFFLOAD_ENABLED
 endif
-
-ifeq ($(call is-vendor-board-platform,QCOM),true)
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_FLAC_OFFLOAD)),true)
        LOCAL_CFLAGS     += -DFLAC_OFFLOAD_ENABLED
 endif
@@ -173,6 +192,11 @@ LOCAL_SHARED_LIBRARIES += \
         libdl
 
 LOCAL_CFLAGS += -Wno-multichar
+
+ifeq ($(DTS_CODEC_M_), true)
+  LOCAL_SRC_FILES+= DTSUtils.cpp
+  LOCAL_CFLAGS += -DDTS_CODEC_M_
+endif
 
 LOCAL_MODULE:= libstagefright
 
