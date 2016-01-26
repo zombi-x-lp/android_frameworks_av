@@ -1400,11 +1400,11 @@ bool OMXNodeInstance::handleMessage(omx_message &msg) {
         BufferMeta *buffer_meta =
             static_cast<BufferMeta *>(buffer->pAppPrivate);
 
-        if (buffer->nOffset + buffer->nFilledLen < buffer->nOffset
+/*        if (buffer->nOffset + buffer->nFilledLen < buffer->nOffset
                 || buffer->nOffset + buffer->nFilledLen > buffer->nAllocLen) {
             CLOG_ERROR(onFillBufferDone, OMX_ErrorBadParameter,
                     FULL_BUFFER(NULL, buffer, msg.fenceFd));
-        }
+        }*/
         buffer_meta->CopyFromOMX(buffer);
 
         if (bufferSource != NULL) {
